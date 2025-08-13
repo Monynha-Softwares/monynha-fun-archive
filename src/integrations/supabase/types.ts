@@ -14,7 +14,254 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      categories: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          slug: string
+          title_en: string
+          title_es: string
+          title_fr: string
+          title_pt: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          slug: string
+          title_en: string
+          title_es: string
+          title_fr: string
+          title_pt: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          slug?: string
+          title_en?: string
+          title_es?: string
+          title_fr?: string
+          title_pt?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          bio: string | null
+          created_at: string
+          display_name: string | null
+          id: string
+          role: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          bio?: string | null
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          role?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          avatar_url?: string | null
+          bio?: string | null
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          role?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      suggestions: {
+        Row: {
+          created_at: string
+          id: string
+          user_id: string
+          video_id: string
+          vote: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          user_id: string
+          video_id: string
+          vote?: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          user_id?: string
+          video_id?: string
+          vote?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "suggestions_video_id_fkey"
+            columns: ["video_id"]
+            isOneToOne: false
+            referencedRelation: "videos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tags: {
+        Row: {
+          color: string | null
+          created_at: string
+          id: string
+          is_special: boolean | null
+          name: string
+        }
+        Insert: {
+          color?: string | null
+          created_at?: string
+          id?: string
+          is_special?: boolean | null
+          name: string
+        }
+        Update: {
+          color?: string | null
+          created_at?: string
+          id?: string
+          is_special?: boolean | null
+          name?: string
+        }
+        Relationships: []
+      }
+      video_categories: {
+        Row: {
+          category_id: string
+          created_at: string
+          id: string
+          video_id: string
+        }
+        Insert: {
+          category_id: string
+          created_at?: string
+          id?: string
+          video_id: string
+        }
+        Update: {
+          category_id?: string
+          created_at?: string
+          id?: string
+          video_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "video_categories_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_categories_video_id_fkey"
+            columns: ["video_id"]
+            isOneToOne: false
+            referencedRelation: "videos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      video_tags: {
+        Row: {
+          created_at: string
+          id: string
+          tag_id: string
+          video_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          tag_id: string
+          video_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          tag_id?: string
+          video_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "video_tags_tag_id_fkey"
+            columns: ["tag_id"]
+            isOneToOne: false
+            referencedRelation: "tags"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_tags_video_id_fkey"
+            columns: ["video_id"]
+            isOneToOne: false
+            referencedRelation: "videos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      videos: {
+        Row: {
+          approved_at: string | null
+          approved_by: string | null
+          created_at: string
+          description: string | null
+          embed_url: string
+          id: string
+          language: string
+          platform: string
+          platform_id: string
+          status: string
+          storage_mode: string
+          submitted_by: string | null
+          title: string
+          updated_at: string
+          votes_count: number
+        }
+        Insert: {
+          approved_at?: string | null
+          approved_by?: string | null
+          created_at?: string
+          description?: string | null
+          embed_url: string
+          id?: string
+          language?: string
+          platform: string
+          platform_id: string
+          status?: string
+          storage_mode?: string
+          submitted_by?: string | null
+          title: string
+          updated_at?: string
+          votes_count?: number
+        }
+        Update: {
+          approved_at?: string | null
+          approved_by?: string | null
+          created_at?: string
+          description?: string | null
+          embed_url?: string
+          id?: string
+          language?: string
+          platform?: string
+          platform_id?: string
+          status?: string
+          storage_mode?: string
+          submitted_by?: string | null
+          title?: string
+          updated_at?: string
+          votes_count?: number
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
