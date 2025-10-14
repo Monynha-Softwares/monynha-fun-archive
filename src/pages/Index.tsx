@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, type RefObject } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import type { Tables } from "@/integrations/supabase/types";
 import { Header } from "@/components/Header";
 import { VideoGrid } from "@/components/VideoGrid";
 import { CategoryFilter } from "@/components/CategoryFilter";
@@ -9,6 +11,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Zap, TrendingUp, Clock, Crown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { filterVideos, FilterableVideo } from "@/lib/video-filter";
+import { SubmitVideoDialog } from "@/components/SubmitVideoDialog";
+import { useAuth } from "@/hooks/use-auth";
 
 interface Video extends FilterableVideo {
   id: string;
@@ -28,6 +32,7 @@ interface Video extends FilterableVideo {
 }
 
 interface Category {
+  id: string;
   slug: string;
   title_pt: string;
   title_en: string;
@@ -35,10 +40,18 @@ interface Category {
   title_fr: string;
 }
 
+interface Tag {
+  id: string;
+  name: string;
+  is_special: boolean | null;
+  color?: string | null;
+}
+
 const Index = () => {
   const [videos, setVideos] = useState<Video[]>([]);
   const [pendingVideos, setPendingVideos] = useState<Video[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [tags, setTags] = useState<Tag[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string | undefined>();
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [selectedLanguage, setSelectedLanguage] = useState<string | undefined>();
@@ -46,8 +59,11 @@ const Index = () => {
   const [activeTab, setActiveTab] = useState<"approved" | "pending">("approved");
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
+  const { user } = useAuth();
+  const navigate = useNavigate();
   const approvedSectionRef = useRef<HTMLDivElement | null>(null);
   const pendingSectionRef = useRef<HTMLDivElement | null>(null);
+  const [isSubmitOpen, setIsSubmitOpen] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -92,10 +108,17 @@ const Index = () => {
       // Fetch categories
       const { data: categoriesData, error: categoriesError } = await supabase
         .from('categories')
-        .select('*')
+        .select('id, slug, title_pt, title_en, title_es, title_fr')
         .order('title_pt');
 
       if (categoriesError) throw categoriesError;
+
+      const { data: tagsData, error: tagsError } = await supabase
+        .from('tags')
+        .select('id, name, color, is_special')
+        .order('name');
+
+      if (tagsError) throw tagsError;
 
       // Transform data
       const transformVideos = (data: any[]) => data.map(video => ({
@@ -109,6 +132,7 @@ const Index = () => {
       setVideos(transformVideos(videosData || []));
       setPendingVideos(transformVideos(pendingData || []));
       setCategories(categoriesData || []);
+      setTags(tagsData || []);
     } catch (error) {
       console.error('Error fetching data:', error);
       toast({
@@ -132,7 +156,7 @@ const Index = () => {
   const handleVote = async (videoId: string) => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      
+
       if (!user) {
         toast({
           title: "Login necessário",
@@ -169,6 +193,58 @@ const Index = () => {
     }
   };
 
+  const handleSubmitVideo = () => {
+    if (!user) {
+      toast({
+        title: "Faça login para submeter",
+        description: "Crie uma conta ou entre para compartilhar vídeos com a comunidade.",
+      });
+      navigate("/login");
+      return;
+    }
+
+    setIsSubmitOpen(true);
+  };
+
+  const handleVideoSubmitted = ({
+    video,
+    categoryIds,
+    tagIds,
+  }: {
+    video: Tables<'videos'>;
+    categoryIds: string[];
+    tagIds: string[];
+  }) => {
+    const categoryLookup = new Map(categories.map((category) => [category.id, category]));
+    const tagLookup = new Map(tags.map((tag) => [tag.id, tag]));
+
+    const newVideo: Video = {
+      ...video,
+      tags: tagIds
+        .map((tagId) => tagLookup.get(tagId))
+        .filter((tag): tag is Tag => Boolean(tag))
+        .map((tag) => ({
+          name: tag.name,
+          is_special: Boolean(tag.is_special),
+          color: tag.color ?? undefined,
+        })),
+      video_categories: categoryIds
+        .map((categoryId) => categoryLookup.get(categoryId))
+        .filter((category): category is Category => Boolean(category))
+        .map((category) => ({
+          category: {
+            slug: category.slug,
+          },
+        })),
+    };
+
+    setPendingVideos((prev) => [newVideo, ...prev]);
+    setActiveTab("pending");
+    requestAnimationFrame(() => {
+      pendingSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  };
+
   const filteredVideos = filterVideos(
     videos,
     selectedCategory,
@@ -202,8 +278,16 @@ const Index = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      <Header onSearch={handleSearch} />
+    <>
+      <SubmitVideoDialog
+        open={isSubmitOpen}
+        onOpenChange={setIsSubmitOpen}
+        categories={categories}
+        tags={tags}
+        onSubmitted={handleVideoSubmitted}
+      />
+      <div className="min-h-screen bg-background">
+        <Header onSearch={handleSearch} onSubmitVideo={handleSubmitVideo} />
       
       {/* Hero Section */}
       <section className="relative py-20 px-4 overflow-hidden">
@@ -304,7 +388,8 @@ const Index = () => {
           </main>
         </div>
       </div>
-    </div>
+      </div>
+    </>
   );
 };
 
