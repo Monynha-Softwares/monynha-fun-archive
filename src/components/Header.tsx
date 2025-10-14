@@ -8,10 +8,13 @@ interface HeaderProps {
   onMenuToggle?: () => void;
   onSearch?: (query: string) => void;
   onSubmitVideo?: () => void;
+  totalVotes?: number;
 }
 
-export function Header({ onMenuToggle, onSearch, onSubmitVideo }: HeaderProps) {
+export function Header({ onMenuToggle, onSearch, onSubmitVideo, totalVotes = 0 }: HeaderProps) {
   const [searchQuery, setSearchQuery] = useState("");
+
+  const formattedVotes = new Intl.NumberFormat("pt-BR").format(totalVotes);
 
   const updateSearchQuery = (value: string) => {
     setSearchQuery(value);
@@ -72,7 +75,7 @@ export function Header({ onMenuToggle, onSearch, onSubmitVideo }: HeaderProps) {
             {/* Vote counter */}
             <div className="hidden sm:flex items-center gap-1 px-3 py-1 bg-muted rounded-full">
               <Heart className="w-4 h-4 text-primary" />
-              <span className="text-sm font-medium">1,337</span>
+              <span className="text-sm font-medium">{formattedVotes}</span>
             </div>
 
             {/* Submit video */}

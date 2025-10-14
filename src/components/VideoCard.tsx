@@ -3,6 +3,7 @@ import { Heart, Play, Tag, Calendar, Cookie } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 
 interface VideoCardProps {
@@ -21,19 +22,29 @@ interface VideoCardProps {
       is_special: boolean;
       color?: string;
     }>;
+    hasVoted?: boolean;
   };
-  onVote?: (videoId: string) => void;
+  onVote?: (videoId: string) => Promise<void> | void;
   showVoteButton?: boolean;
 }
 
 export function VideoCard({ video, onVote, showVoteButton = false }: VideoCardProps) {
   const [isHovered, setIsHovered] = useState(false);
-  const [hasVoted, setHasVoted] = useState(false);
+
+  const thresholdFromEnv = Number(import.meta.env.VITE_VOTES_TO_PUBLISH ?? 10);
+  const approvalThreshold = Number.isFinite(thresholdFromEnv) && thresholdFromEnv > 0
+    ? thresholdFromEnv
+    : 10;
+  const votesCount = video.votes_count ?? 0;
+  const hasUserVoted = Boolean(video.hasVoted);
+  const votesRemaining = Math.max(approvalThreshold - votesCount, 0);
+  const progressValue = approvalThreshold > 0
+    ? Math.min((votesCount / approvalThreshold) * 100, 100)
+    : 0;
 
   const handleVote = () => {
-    if (onVote && !hasVoted) {
-      onVote(video.id);
-      setHasVoted(true);
+    if (onVote && !hasUserVoted) {
+      void onVote(video.id);
     }
   };
 
@@ -120,7 +131,7 @@ export function VideoCard({ video, onVote, showVoteButton = false }: VideoCardPr
         {video.tags && video.tags.length > 0 && (
           <div className="flex flex-wrap gap-1">
             {video.tags.slice(0, 3).map((tag) => (
-              <Badge 
+              <Badge
                 key={tag.name}
                 variant={tag.is_special ? "default" : "secondary"}
                 className={cn(
@@ -140,6 +151,27 @@ export function VideoCard({ video, onVote, showVoteButton = false }: VideoCardPr
           </div>
         )}
 
+        {video.status === 'pending' && (
+          <div className="space-y-2 pt-1">
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>
+                {votesRemaining > 0
+                  ? `${votesRemaining} voto${votesRemaining === 1 ? '' : 's'} para publicar`
+                  : 'Pronto para aprovação!'}
+              </span>
+              <span className="font-medium text-foreground">
+                {Math.min(votesCount, approvalThreshold)}/{approvalThreshold}
+              </span>
+            </div>
+            <Progress value={progressValue} className="h-2" />
+            {hasUserVoted && (
+              <Badge variant="outline" className="text-xs border-primary/60 text-primary">
+                Você já votou
+              </Badge>
+            )}
+          </div>
+        )}
+
         {/* Footer */}
         <div className="flex items-center justify-between pt-2">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -151,7 +183,7 @@ export function VideoCard({ video, onVote, showVoteButton = false }: VideoCardPr
             {/* Vote count */}
             <div className="flex items-center gap-1 text-sm">
               <Heart className="w-4 h-4 text-primary" />
-              <span className="font-medium">{video.votes_count}</span>
+              <span className="font-medium">{votesCount}</span>
             </div>
 
             {/* Vote button for pending videos */}
@@ -160,13 +192,13 @@ export function VideoCard({ video, onVote, showVoteButton = false }: VideoCardPr
                 variant="vote"
                 size="sm"
                 onClick={handleVote}
-                disabled={hasVoted}
+                disabled={hasUserVoted}
                 className={cn(
                   "ml-2 transition-all duration-200",
-                  hasVoted && "opacity-50 cursor-not-allowed"
+                  hasUserVoted && "opacity-50 cursor-not-allowed"
                 )}
               >
-                {hasVoted ? "Votado!" : "👍 Publicar"}
+                {hasUserVoted ? "Votado!" : "👍 Publicar"}
               </Button>
             )}
           </div>
