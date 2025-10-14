@@ -15,13 +15,14 @@ interface Video {
     is_special: boolean;
     color?: string;
   }>;
+  hasVoted?: boolean;
 }
 
 interface VideoGridProps {
   videos: Video[];
   title?: string;
   showVoteButton?: boolean;
-  onVote?: (videoId: string) => void;
+  onVote?: (videoId: string) => Promise<void> | void;
   loading?: boolean;
 }
 

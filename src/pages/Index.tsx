@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, type RefObject } from "react";
+import { useState, useEffect, useRef, useCallback, type RefObject } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
@@ -23,6 +23,7 @@ interface Video extends FilterableVideo {
   language: string;
   status: string;
   votes_count: number;
+  hasVoted?: boolean;
   created_at: string;
   tags?: Array<{
     name: string;
@@ -58,6 +59,7 @@ const Index = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState<"approved" | "pending">("approved");
   const [loading, setLoading] = useState(true);
+  const [totalVotes, setTotalVotes] = useState(0);
   const { toast } = useToast();
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -65,74 +67,91 @@ const Index = () => {
   const pendingSectionRef = useRef<HTMLDivElement | null>(null);
   const [isSubmitOpen, setIsSubmitOpen] = useState(false);
 
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async (showLoader = true) => {
+    if (showLoader) {
+      setLoading(true);
+    }
     try {
-      // Fetch approved videos
-      const { data: videosData, error: videosError } = await supabase
-        .from('videos')
-        .select(`
-          *,
-          video_tags (
-            tags (name, is_special, color)
-          ),
-          video_categories (
-            category: categories (slug)
-          )
-        `)
-        .eq('status', 'approved')
-        .order('created_at', { ascending: false });
+      const [approvedResponse, pendingResponse, categoriesResponse, tagsResponse] = await Promise.all([
+        supabase
+          .from('videos')
+          .select(`
+            *,
+            video_tags (
+              tags (name, is_special, color)
+            ),
+            video_categories (
+              category: categories (slug)
+            )
+          `)
+          .eq('status', 'approved')
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('videos')
+          .select(`
+            *,
+            video_tags (
+              tags (name, is_special, color)
+            ),
+            video_categories (
+              category: categories (slug)
+            )
+          `)
+          .eq('status', 'pending')
+          .order('votes_count', { ascending: false }),
+        supabase
+          .from('categories')
+          .select('id, slug, title_pt, title_en, title_es, title_fr')
+          .order('title_pt'),
+        supabase
+          .from('tags')
+          .select('id, name, color, is_special')
+          .order('name'),
+      ]);
 
-      if (videosError) throw videosError;
+      if (approvedResponse.error) throw approvedResponse.error;
+      if (pendingResponse.error) throw pendingResponse.error;
+      if (categoriesResponse.error) throw categoriesResponse.error;
+      if (tagsResponse.error) throw tagsResponse.error;
 
-      // Fetch pending videos
-      const { data: pendingData, error: pendingError } = await supabase
-        .from('videos')
-        .select(`
-          *,
-          video_tags (
-            tags (name, is_special, color)
-          ),
-          video_categories (
-            category: categories (slug)
-          )
-        `)
-        .eq('status', 'pending')
-        .order('votes_count', { ascending: false });
+      const approvedData = approvedResponse.data ?? [];
+      const pendingData = pendingResponse.data ?? [];
+      const categoriesData = categoriesResponse.data ?? [];
+      const tagsData = tagsResponse.data ?? [];
 
-      if (pendingError) throw pendingError;
+      let userVotes = new Set<string>();
 
-      // Fetch categories
-      const { data: categoriesData, error: categoriesError } = await supabase
-        .from('categories')
-        .select('id, slug, title_pt, title_en, title_es, title_fr')
-        .order('title_pt');
+      if (user?.id && pendingData.length > 0) {
+        const { data: userVotesData, error: userVotesError } = await supabase
+          .from('suggestions')
+          .select('video_id')
+          .eq('user_id', user.id)
+          .in('video_id', pendingData.map(video => video.id));
 
-      if (categoriesError) throw categoriesError;
+        if (userVotesError) throw userVotesError;
 
-      const { data: tagsData, error: tagsError } = await supabase
-        .from('tags')
-        .select('id, name, color, is_special')
-        .order('name');
+        userVotes = new Set(userVotesData?.map(vote => vote.video_id));
+      }
 
-      if (tagsError) throw tagsError;
-
-      // Transform data
-      const transformVideos = (data: any[]) => data.map(video => ({
+      const transformVideos = (data: any[], voteSet?: Set<string>) => data.map(video => ({
         ...video,
         tags: video.video_tags?.map((vt: any) => vt.tags).filter(Boolean) || [],
         video_categories: video.video_categories?.map((vc: any) => ({
           category: vc.category,
         })).filter(Boolean) || [],
+        hasVoted: voteSet?.has(video.id) ?? false,
       }));
 
-      setVideos(transformVideos(videosData || []));
-      setPendingVideos(transformVideos(pendingData || []));
-      setCategories(categoriesData || []);
-      setTags(tagsData || []);
+      setVideos(transformVideos(approvedData));
+      setPendingVideos(transformVideos(pendingData, userVotes));
+      setCategories(categoriesData);
+      setTags(tagsData);
+
+      const aggregatedVotes = [...approvedData, ...pendingData].reduce((sum, video) => {
+        return sum + (video?.votes_count ?? 0);
+      }, 0);
+
+      setTotalVotes(aggregatedVotes);
     } catch (error) {
       console.error('Error fetching data:', error);
       toast({
@@ -141,9 +160,15 @@ const Index = () => {
         variant: "destructive",
       });
     } finally {
-      setLoading(false);
+      if (showLoader) {
+        setLoading(false);
+      }
     }
-  };
+  }, [toast, user?.id]);
+
+  useEffect(() => {
+    void fetchData();
+  }, [fetchData]);
 
   const handleSearch = (query: string) => {
     setSearchQuery(query);
@@ -182,7 +207,7 @@ const Index = () => {
       });
 
       // Refresh data
-      fetchData();
+      await fetchData(false);
     } catch (error) {
       console.error('Error voting:', error);
       toast({
@@ -236,9 +261,11 @@ const Index = () => {
             slug: category.slug,
           },
         })),
+      hasVoted: false,
     };
 
     setPendingVideos((prev) => [newVideo, ...prev]);
+    setTotalVotes((prev) => prev + (video.votes_count ?? 0));
     setActiveTab("pending");
     requestAnimationFrame(() => {
       pendingSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -287,7 +314,7 @@ const Index = () => {
         onSubmitted={handleVideoSubmitted}
       />
       <div className="min-h-screen bg-background">
-        <Header onSearch={handleSearch} onSubmitVideo={handleSubmitVideo} />
+        <Header onSearch={handleSearch} onSubmitVideo={handleSubmitVideo} totalVotes={totalVotes} />
       
       {/* Hero Section */}
       <section className="relative py-20 px-4 overflow-hidden">
