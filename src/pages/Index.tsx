@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, type RefObject } from "react";
+import { useState, useRef, useMemo, useCallback, type RefObject } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
@@ -13,6 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 import { filterVideos, FilterableVideo } from "@/lib/video-filter";
 import { SubmitVideoDialog } from "@/components/SubmitVideoDialog";
 import { useAuth } from "@/hooks/use-auth";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 interface Video extends FilterableVideo {
   id: string;
@@ -48,127 +49,184 @@ interface Tag {
   color?: string | null;
 }
 
+const videoSelect = `
+  *,
+  video_tags (
+    tags (name, is_special, color)
+  ),
+  video_categories (
+    category: categories (slug)
+  )
+`;
+
+type RawVideo = Tables<"videos"> & {
+  video_tags?: Array<{
+    tags?: {
+      name: string;
+      is_special: boolean | null;
+      color?: string | null;
+    } | null;
+  }> | null;
+  video_categories?: Array<{
+    category?: {
+      slug: string;
+    } | null;
+  }> | null;
+};
+
+const transformVideos = (data: RawVideo[], voteSet?: Set<string>): Video[] =>
+  data.map((video) => {
+    const tags =
+      video.video_tags
+        ?.map((vt) => vt.tags)
+        .filter((tag): tag is NonNullable<typeof tag> => Boolean(tag))
+        .map((tag) => ({
+          name: tag.name,
+          is_special: Boolean(tag.is_special),
+          color: tag.color ?? undefined,
+        })) ?? [];
+
+    const videoCategories =
+      video.video_categories
+        ?.map((vc) =>
+          vc.category
+            ? {
+                category: {
+                  slug: vc.category.slug,
+                },
+              }
+            : undefined
+        )
+        .filter((category): category is { category: { slug: string } } => Boolean(category)) ?? [];
+
+    return {
+      ...video,
+      votes_count: video.votes_count ?? 0,
+      tags,
+      video_categories: videoCategories,
+      hasVoted: voteSet?.has(video.id) ?? false,
+    };
+  });
+
 const Index = () => {
-  const [videos, setVideos] = useState<Video[]>([]);
-  const [pendingVideos, setPendingVideos] = useState<Video[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [tags, setTags] = useState<Tag[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string | undefined>();
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [selectedLanguage, setSelectedLanguage] = useState<string | undefined>();
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState<"approved" | "pending">("approved");
-  const [loading, setLoading] = useState(true);
-  const [totalVotes, setTotalVotes] = useState(0);
   const { toast } = useToast();
   const { user } = useAuth();
   const navigate = useNavigate();
   const approvedSectionRef = useRef<HTMLDivElement | null>(null);
   const pendingSectionRef = useRef<HTMLDivElement | null>(null);
   const [isSubmitOpen, setIsSubmitOpen] = useState(false);
+  const queryClient = useQueryClient();
+  const userId = user?.id ?? null;
+  const approvedQueryKey = ["videos", "approved"] as const;
+  const pendingQueryKey = ["videos", "pending", { userId }] as const;
+  const categoriesQueryKey = ["categories"] as const;
+  const tagsQueryKey = ["tags"] as const;
 
-  const fetchData = useCallback(async (showLoader = true) => {
-    if (showLoader) {
-      setLoading(true);
-    }
-    try {
-      const [approvedResponse, pendingResponse, categoriesResponse, tagsResponse] = await Promise.all([
-        supabase
-          .from('videos')
-          .select(`
-            *,
-            video_tags (
-              tags (name, is_special, color)
-            ),
-            video_categories (
-              category: categories (slug)
-            )
-          `)
-          .eq('status', 'approved')
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('videos')
-          .select(`
-            *,
-            video_tags (
-              tags (name, is_special, color)
-            ),
-            video_categories (
-              category: categories (slug)
-            )
-          `)
-          .eq('status', 'pending')
-          .order('votes_count', { ascending: false }),
-        supabase
-          .from('categories')
-          .select('id, slug, title_pt, title_en, title_es, title_fr')
-          .order('title_pt'),
-        supabase
-          .from('tags')
-          .select('id, name, color, is_special')
-          .order('name'),
-      ]);
+  const handleQueryError = useCallback((error: unknown) => {
+    console.error("Error fetching data:", error);
+    toast({
+      title: "Erro ao carregar dados",
+      description: "Não foi possível carregar os vídeos. Tente novamente.",
+      variant: "destructive",
+    });
+  }, [toast]);
 
-      if (approvedResponse.error) throw approvedResponse.error;
-      if (pendingResponse.error) throw pendingResponse.error;
-      if (categoriesResponse.error) throw categoriesResponse.error;
-      if (tagsResponse.error) throw tagsResponse.error;
+  const approvedQuery = useQuery({
+    queryKey: approvedQueryKey,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("videos")
+        .select(videoSelect)
+        .eq("status", "approved")
+        .order("created_at", { ascending: false });
 
-      const approvedData = approvedResponse.data ?? [];
-      const pendingData = pendingResponse.data ?? [];
-      const categoriesData = categoriesResponse.data ?? [];
-      const tagsData = tagsResponse.data ?? [];
+      if (error) throw error;
 
-      let userVotes = new Set<string>();
+      return transformVideos((data as RawVideo[]) ?? []);
+    },
+    onError: handleQueryError,
+  });
 
-      if (user?.id && pendingData.length > 0) {
-        const { data: userVotesData, error: userVotesError } = await supabase
-          .from('suggestions')
-          .select('video_id')
-          .eq('user_id', user.id)
-          .in('video_id', pendingData.map(video => video.id));
+  const pendingQuery = useQuery({
+    queryKey: pendingQueryKey,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("videos")
+        .select(videoSelect)
+        .eq("status", "pending")
+        .order("votes_count", { ascending: false });
 
-        if (userVotesError) throw userVotesError;
+      if (error) throw error;
 
-        userVotes = new Set(userVotesData?.map(vote => vote.video_id));
+      const pendingData = (data as RawVideo[]) ?? [];
+
+      if (!userId || pendingData.length === 0) {
+        return transformVideos(pendingData);
       }
 
-      const transformVideos = (data: any[], voteSet?: Set<string>) => data.map(video => ({
-        ...video,
-        tags: video.video_tags?.map((vt: any) => vt.tags).filter(Boolean) || [],
-        video_categories: video.video_categories?.map((vc: any) => ({
-          category: vc.category,
-        })).filter(Boolean) || [],
-        hasVoted: voteSet?.has(video.id) ?? false,
-      }));
+      const { data: userVotesData, error: userVotesError } = await supabase
+        .from("suggestions")
+        .select("video_id")
+        .eq("user_id", userId)
+        .in(
+          "video_id",
+          pendingData.map((video) => video.id)
+        );
 
-      setVideos(transformVideos(approvedData));
-      setPendingVideos(transformVideos(pendingData, userVotes));
-      setCategories(categoriesData);
-      setTags(tagsData);
+      if (userVotesError) throw userVotesError;
 
-      const aggregatedVotes = [...approvedData, ...pendingData].reduce((sum, video) => {
-        return sum + (video?.votes_count ?? 0);
-      }, 0);
+      const voteSet = new Set(userVotesData?.map((vote) => vote.video_id));
 
-      setTotalVotes(aggregatedVotes);
-    } catch (error) {
-      console.error('Error fetching data:', error);
-      toast({
-        title: "Erro ao carregar dados",
-        description: "Não foi possível carregar os vídeos. Tente novamente.",
-        variant: "destructive",
-      });
-    } finally {
-      if (showLoader) {
-        setLoading(false);
-      }
-    }
-  }, [toast, user?.id]);
+      return transformVideos(pendingData, voteSet);
+    },
+    onError: handleQueryError,
+  });
 
-  useEffect(() => {
-    void fetchData();
-  }, [fetchData]);
+  const categoriesQuery = useQuery({
+    queryKey: categoriesQueryKey,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("categories")
+        .select("id, slug, title_pt, title_en, title_es, title_fr")
+        .order("title_pt");
+
+      if (error) throw error;
+
+      return (data as Category[]) ?? [];
+    },
+    onError: handleQueryError,
+  });
+
+  const tagsQuery = useQuery({
+    queryKey: tagsQueryKey,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("tags")
+        .select("id, name, color, is_special")
+        .order("name");
+
+      if (error) throw error;
+
+      return (data as Tag[]) ?? [];
+    },
+    onError: handleQueryError,
+  });
+
+  const videos = approvedQuery.data ?? [];
+  const pendingVideos = pendingQuery.data ?? [];
+  const categories = categoriesQuery.data ?? [];
+  const tags = tagsQuery.data ?? [];
+
+  const totalVotes = useMemo(() => {
+    return [...videos, ...pendingVideos].reduce((sum, video) => {
+      return sum + (video?.votes_count ?? 0);
+    }, 0);
+  }, [videos, pendingVideos]);
 
   const handleSearch = (query: string) => {
     setSearchQuery(query);
@@ -206,8 +264,8 @@ const Index = () => {
         description: "Seu voto foi computado para publicação deste vídeo.",
       });
 
-      // Refresh data
-      await fetchData(false);
+      await queryClient.invalidateQueries({ queryKey: ["videos", "pending"] });
+      await queryClient.invalidateQueries({ queryKey: ["videos", "approved"] });
     } catch (error) {
       console.error('Error voting:', error);
       toast({
@@ -245,6 +303,7 @@ const Index = () => {
 
     const newVideo: Video = {
       ...video,
+      votes_count: video.votes_count ?? 0,
       tags: tagIds
         .map((tagId) => tagLookup.get(tagId))
         .filter((tag): tag is Tag => Boolean(tag))
@@ -264,27 +323,45 @@ const Index = () => {
       hasVoted: false,
     };
 
-    setPendingVideos((prev) => [newVideo, ...prev]);
-    setTotalVotes((prev) => prev + (video.votes_count ?? 0));
+    queryClient.setQueryData<Video[]>(pendingQueryKey, (prev = []) => [newVideo, ...prev]);
+    void queryClient.invalidateQueries({ queryKey: ["videos", "pending"] });
     setActiveTab("pending");
     requestAnimationFrame(() => {
       pendingSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
   };
 
-  const filteredVideos = filterVideos(
-    videos,
-    selectedCategory,
-    selectedTags,
-    searchQuery,
-    selectedLanguage
+  const filteredVideos = useMemo(
+    () =>
+      filterVideos(
+        videos,
+        selectedCategory,
+        selectedTags,
+        searchQuery,
+        selectedLanguage
+      ),
+    [videos, selectedCategory, selectedTags, searchQuery, selectedLanguage]
   );
-  const filteredPendingVideos = filterVideos(
-    pendingVideos,
-    selectedCategory,
-    selectedTags,
-    searchQuery,
-    selectedLanguage
+  const filteredPendingVideos = useMemo(
+    () =>
+      filterVideos(
+        pendingVideos,
+        selectedCategory,
+        selectedTags,
+        searchQuery,
+        selectedLanguage
+      ),
+    [pendingVideos, selectedCategory, selectedTags, searchQuery, selectedLanguage]
+  );
+
+  const renderErrorState = (message: string) => (
+    <div className="space-y-6">
+      <div className="text-center py-12 border rounded-lg">
+        <div className="text-6xl mb-4">⚠️</div>
+        <h3 className="text-xl font-semibold mb-2">{message}</h3>
+        <p className="text-muted-foreground">Tente atualizar a página ou volte mais tarde.</p>
+      </div>
+    </div>
   );
 
   const scrollToSection = (
@@ -392,23 +469,31 @@ const Index = () => {
 
               <TabsContent value="approved" className="space-y-8">
                 <div ref={approvedSectionRef}>
-                  <VideoGrid
-                    videos={filteredVideos}
-                    title="🏆 Pérolas Aprovadas pela Comunidade"
-                    loading={loading}
-                  />
+                  {approvedQuery.isError
+                    ? renderErrorState("Não foi possível carregar os vídeos aprovados")
+                    : (
+                      <VideoGrid
+                        videos={filteredVideos}
+                        title="🏆 Pérolas Aprovadas pela Comunidade"
+                        loading={approvedQuery.isLoading}
+                      />
+                    )}
                 </div>
               </TabsContent>
 
               <TabsContent value="pending" className="space-y-8">
                 <div ref={pendingSectionRef}>
-                  <VideoGrid
-                    videos={filteredPendingVideos}
-                    title="⏳ Vídeos Aguardando Aprovação"
-                    showVoteButton={true}
-                    onVote={handleVote}
-                    loading={loading}
-                  />
+                  {pendingQuery.isError
+                    ? renderErrorState("Não foi possível carregar os vídeos pendentes")
+                    : (
+                      <VideoGrid
+                        videos={filteredPendingVideos}
+                        title="⏳ Vídeos Aguardando Aprovação"
+                        showVoteButton={true}
+                        onVote={handleVote}
+                        loading={pendingQuery.isLoading}
+                      />
+                    )}
                 </div>
               </TabsContent>
             </Tabs>
