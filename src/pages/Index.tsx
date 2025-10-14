@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, type RefObject } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Header } from "@/components/Header";
 import { VideoGrid } from "@/components/VideoGrid";
@@ -41,8 +41,13 @@ const Index = () => {
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string | undefined>();
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [selectedLanguage, setSelectedLanguage] = useState<string | undefined>();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeTab, setActiveTab] = useState<"approved" | "pending">("approved");
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
+  const approvedSectionRef = useRef<HTMLDivElement | null>(null);
+  const pendingSectionRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     fetchData();
@@ -116,6 +121,14 @@ const Index = () => {
     }
   };
 
+  const handleSearch = (query: string) => {
+    setSearchQuery(query);
+  };
+
+  const handleLanguageChange = (language: string | undefined) => {
+    setSelectedLanguage(language);
+  };
+
   const handleVote = async (videoId: string) => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -156,12 +169,41 @@ const Index = () => {
     }
   };
 
-  const filteredVideos = filterVideos(videos, selectedCategory, selectedTags);
-  const filteredPendingVideos = filterVideos(pendingVideos, selectedCategory, selectedTags);
+  const filteredVideos = filterVideos(
+    videos,
+    selectedCategory,
+    selectedTags,
+    searchQuery,
+    selectedLanguage
+  );
+  const filteredPendingVideos = filterVideos(
+    pendingVideos,
+    selectedCategory,
+    selectedTags,
+    searchQuery,
+    selectedLanguage
+  );
+
+  const scrollToSection = (
+    sectionRef: RefObject<HTMLDivElement>,
+    tabToActivate?: "approved" | "pending"
+  ) => {
+    if (tabToActivate) {
+      setActiveTab(tabToActivate);
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          sectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+      });
+      return;
+    }
+
+    sectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   return (
     <div className="min-h-screen bg-background">
-      <Header />
+      <Header onSearch={handleSearch} />
       
       {/* Hero Section */}
       <section className="relative py-20 px-4 overflow-hidden">
@@ -179,11 +221,21 @@ const Index = () => {
             </p>
             
             <div className="flex flex-wrap justify-center gap-4 mt-8">
-              <Button variant="neon" size="lg" className="gap-2">
+              <Button
+                variant="neon"
+                size="lg"
+                className="gap-2"
+                onClick={() => scrollToSection(approvedSectionRef, "approved")}
+              >
                 <Zap className="w-5 h-5" />
                 Explorar Acervo
               </Button>
-              <Button variant="cyber" size="lg" className="gap-2">
+              <Button
+                variant="cyber"
+                size="lg"
+                className="gap-2"
+                onClick={() => scrollToSection(pendingSectionRef, "pending")}
+              >
                 <Crown className="w-5 h-5" />
                 Votar em Pendentes
               </Button>
@@ -203,13 +255,19 @@ const Index = () => {
                 onCategoryChange={setSelectedCategory}
                 selectedTags={selectedTags}
                 onTagChange={setSelectedTags}
+                selectedLanguage={selectedLanguage}
+                onLanguageChange={handleLanguageChange}
               />
             </Card>
           </aside>
 
           {/* Main Content */}
           <main className="lg:col-span-3">
-            <Tabs defaultValue="approved" className="space-y-8">
+            <Tabs
+              value={activeTab}
+              onValueChange={value => setActiveTab(value as "approved" | "pending")}
+              className="space-y-8"
+            >
               <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="approved" className="gap-2">
                   <TrendingUp className="w-4 h-4" />
@@ -222,21 +280,25 @@ const Index = () => {
               </TabsList>
 
               <TabsContent value="approved" className="space-y-8">
-                <VideoGrid
-                  videos={filteredVideos}
-                  title="🏆 Pérolas Aprovadas pela Comunidade"
-                  loading={loading}
-                />
+                <div ref={approvedSectionRef}>
+                  <VideoGrid
+                    videos={filteredVideos}
+                    title="🏆 Pérolas Aprovadas pela Comunidade"
+                    loading={loading}
+                  />
+                </div>
               </TabsContent>
 
               <TabsContent value="pending" className="space-y-8">
-                <VideoGrid
-                  videos={filteredPendingVideos}
-                  title="⏳ Vídeos Aguardando Aprovação"
-                  showVoteButton={true}
-                  onVote={handleVote}
-                  loading={loading}
-                />
+                <div ref={pendingSectionRef}>
+                  <VideoGrid
+                    videos={filteredPendingVideos}
+                    title="⏳ Vídeos Aguardando Aprovação"
+                    showVoteButton={true}
+                    onVote={handleVote}
+                    loading={loading}
+                  />
+                </div>
               </TabsContent>
             </Tabs>
           </main>
