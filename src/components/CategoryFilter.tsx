@@ -17,6 +17,8 @@ interface CategoryFilterProps {
   onCategoryChange: (category: string | undefined) => void;
   selectedTags: string[];
   onTagChange: (tags: string[]) => void;
+  selectedLanguage?: string;
+  onLanguageChange: (language: string | undefined) => void;
 }
 
 const categoryIcons: Record<string, any> = {
@@ -34,18 +36,35 @@ const specialTags = [
   { name: 'clássico', icon: Gamepad2, color: 'secondary' },
 ];
 
+const languages = [
+  { code: "pt", label: "🇧🇷 PT", description: "Português" },
+  { code: "en", label: "🇺🇸 EN", description: "English" },
+  { code: "es", label: "🇪🇸 ES", description: "Español" },
+  { code: "fr", label: "🇫🇷 FR", description: "Français" },
+];
+
 export function CategoryFilter({
   categories,
   selectedCategory,
   onCategoryChange,
   selectedTags,
   onTagChange,
+  selectedLanguage,
+  onLanguageChange,
 }: CategoryFilterProps) {
   const toggleTag = (tag: string) => {
     if (selectedTags.includes(tag)) {
       onTagChange(selectedTags.filter(t => t !== tag));
     } else {
       onTagChange([...selectedTags, tag]);
+    }
+  };
+
+  const toggleLanguage = (language: string) => {
+    if (selectedLanguage === language) {
+      onLanguageChange(undefined);
+    } else {
+      onLanguageChange(language);
     }
   };
 
@@ -127,22 +146,36 @@ export function CategoryFilter({
         </h4>
         
         <div className="grid grid-cols-2 gap-2">
-          <Button variant="outline" size="sm">🇧🇷 PT</Button>
-          <Button variant="outline" size="sm">🇺🇸 EN</Button>
-          <Button variant="outline" size="sm">🇪🇸 ES</Button>
-          <Button variant="outline" size="sm">🇫🇷 FR</Button>
+          {languages.map(language => {
+            const isSelected = selectedLanguage === language.code;
+
+            return (
+              <Button
+                key={language.code}
+                variant={isSelected ? "neon" : "outline"}
+                size="sm"
+                onClick={() => toggleLanguage(language.code)}
+                aria-pressed={isSelected}
+                aria-label={`Filtrar vídeos em ${language.description}`}
+                className={isSelected ? "ring-2 ring-offset-2 ring-primary" : undefined}
+              >
+                <span aria-hidden="true">{language.label}</span>
+              </Button>
+            );
+          })}
         </div>
       </div>
 
       {/* Clear Filters */}
-      {(selectedCategory || selectedTags.length > 0) && (
-        <Button 
-          variant="destructive" 
-          size="sm" 
+      {(selectedCategory || selectedTags.length > 0 || selectedLanguage) && (
+        <Button
+          variant="destructive"
+          size="sm"
           className="w-full"
           onClick={() => {
             onCategoryChange(undefined);
             onTagChange([]);
+            onLanguageChange(undefined);
           }}
         >
           Limpar Filtros

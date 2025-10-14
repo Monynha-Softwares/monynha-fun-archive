@@ -12,6 +12,13 @@ interface HeaderProps {
 export function Header({ onMenuToggle, onSearch }: HeaderProps) {
   const [searchQuery, setSearchQuery] = useState("");
 
+  const updateSearchQuery = (value: string) => {
+    setSearchQuery(value);
+    if (onSearch) {
+      onSearch(value);
+    }
+  };
+
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     if (onSearch) {
@@ -53,7 +60,7 @@ export function Header({ onMenuToggle, onSearch }: HeaderProps) {
                 type="search"
                 placeholder="Buscar vídeos, tags, biscoitos..."
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => updateSearchQuery(e.target.value)}
                 className="pl-10 bg-muted/50 border-primary/20 focus:border-primary"
               />
             </div>
@@ -88,7 +95,7 @@ export function Header({ onMenuToggle, onSearch }: HeaderProps) {
               type="search"
               placeholder="Buscar vídeos..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => updateSearchQuery(e.target.value)}
               className="pl-10"
             />
           </div>
