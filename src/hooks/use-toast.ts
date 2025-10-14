@@ -5,8 +5,13 @@ import type {
   ToastProps,
 } from "@/components/ui/toast"
 
-const TOAST_LIMIT = 1
-const TOAST_REMOVE_DELAY = 1000000
+/**
+ * Toast configuration keeps notifications manageable: at most five are visible
+ * at once and toasts auto-dismiss roughly 5.5 seconds after appearing so they
+ * disappear without lingering indefinitely.
+ */
+const TOAST_LIMIT = 5
+const TOAST_REMOVE_DELAY = 5500
 
 type ToasterToast = ToastProps & {
   id: string
