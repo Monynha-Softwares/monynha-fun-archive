@@ -8,8 +8,9 @@ import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Zap, TrendingUp, Clock, Crown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { filterVideos, FilterableVideo } from "@/lib/video-filter";
 
-interface Video {
+interface Video extends FilterableVideo {
   id: string;
   title: string;
   description?: string;
@@ -23,11 +24,6 @@ interface Video {
     name: string;
     is_special: boolean;
     color?: string;
-  }>;
-  video_categories?: Array<{
-    category?: {
-      slug: string;
-    };
   }>;
 }
 
@@ -61,6 +57,9 @@ const Index = () => {
           *,
           video_tags (
             tags (name, is_special, color)
+          ),
+          video_categories (
+            category: categories (slug)
           )
         `)
         .eq('status', 'approved')
@@ -75,6 +74,9 @@ const Index = () => {
           *,
           video_tags (
             tags (name, is_special, color)
+          ),
+          video_categories (
+            category: categories (slug)
           )
         `)
         .eq('status', 'pending')
@@ -93,7 +95,10 @@ const Index = () => {
       // Transform data
       const transformVideos = (data: any[]) => data.map(video => ({
         ...video,
-        tags: video.video_tags?.map((vt: any) => vt.tags).filter(Boolean) || []
+        tags: video.video_tags?.map((vt: any) => vt.tags).filter(Boolean) || [],
+        video_categories: video.video_categories?.map((vc: any) => ({
+          category: vc.category,
+        })).filter(Boolean) || [],
       }));
 
       setVideos(transformVideos(videosData || []));
@@ -151,19 +156,8 @@ const Index = () => {
     }
   };
 
-  const filteredVideos = videos.filter(video => {
-    if (selectedCategory && !video.video_categories?.some((vc: any) => vc.category?.slug === selectedCategory)) {
-      return false;
-    }
-    
-    if (selectedTags.length > 0 && !selectedTags.some(tag => 
-      video.tags?.some(videoTag => videoTag.name === tag)
-    )) {
-      return false;
-    }
-    
-    return true;
-  });
+  const filteredVideos = filterVideos(videos, selectedCategory, selectedTags);
+  const filteredPendingVideos = filterVideos(pendingVideos, selectedCategory, selectedTags);
 
   return (
     <div className="min-h-screen bg-background">
@@ -237,7 +231,7 @@ const Index = () => {
 
               <TabsContent value="pending" className="space-y-8">
                 <VideoGrid
-                  videos={pendingVideos}
+                  videos={filteredPendingVideos}
                   title="⏳ Vídeos Aguardando Aprovação"
                   showVoteButton={true}
                   onVote={handleVote}
